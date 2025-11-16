@@ -2,8 +2,18 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget, QHBoxLayout, QScrollArea,
     QButtonGroup, QPlainTextEdit, QPushButton
 )
-from PySide6.QtCore import Qt, QPoint
+from PySide6.QtCore import Qt, QPoint, QObject, QTimer, Signal
 from PySide6.QtGui import QPainter, QFontMetrics
+from bisect import bisect_right
+
+def format_time(ms):
+    if ms is None:
+        return "00:00.000"
+    milliseconds = str(ms % 1000).zfill(3)
+    seconds = str((ms // 1000) % 60).zfill(2)
+    minutes = str((ms // 1000) // 60).zfill(2)
+    return f"{minutes}:{seconds}.{milliseconds}"
+
 
 class WordBox(QPushButton):
     def __init__(self, text):
@@ -32,24 +42,16 @@ class WordBox(QPushButton):
         p.setPen(Qt.white)
         fm = QFontMetrics(p.font())
         if self.start_time is not None:
-            txt = self._format_time(self.start_time)
+            txt = format_time(self.start_time)
             right = self.rect().topRight() - QPoint(fm.horizontalAdvance(txt) + 2, -12)
             p.drawText(right, txt)
         if self.end_time is not None:
-            txt = self._format_time(self.end_time)
+            txt = format_time(self.end_time)
             right = self.rect().bottomRight() - QPoint(fm.horizontalAdvance(txt) + 2, 0)
             p.drawText(right, txt)
 
-    def _format_time(self, ms):
-        if ms is None:
-            return ""
-
-        s = (ms // 1000) % 60
-        m = (ms // 1000) // 60
-        ms1 = ms % 1000
-        return f"{m:02d}:{s:02d}.{ms1:03d}"
-
 class LyricsWidget(QWidget):
+    active_words_changed = Signal(list)
     def __init__(self, lyrics, parent=None):
         super().__init__(parent)
         self.lyrics = lyrics
@@ -59,6 +61,11 @@ class LyricsWidget(QWidget):
         self.current_word = 0
         self.parent = parent
         self.scroll_area = None
+        self._timer = QTimer(self)
+        self._timer.setInterval(1000 // 60)
+        self._timer.timeout.connect(self.on_frame)
+        self.player = None
+        self.words = []
         self.init_ui()
 
     def init_ui(self):
@@ -72,7 +79,8 @@ class LyricsWidget(QWidget):
         for i, ln in enumerate(self.lyrics.lines):
             line_widget = QWidget()
             ln.hbox = QHBoxLayout(line_widget)
-            ln.hbox.addStretch()
+            if ln.is_voice_2 is None or ln.is_voice_2 is True:
+                ln.hbox.addStretch()
             ln.hbox.setSpacing(10)
             for j, w in enumerate(ln.words):
                 w.word_box = WordBox(w.word)
@@ -81,9 +89,8 @@ class LyricsWidget(QWidget):
                 ln.hbox.addWidget(w.word_box)
                 self.group.addButton(w.word_box)
                 w.word_box.clicked.connect(self._make_jump_cb(w))
-                w.word_box.setProperty("line_idx", i)
-                w.word_box.setProperty("word_idx", j)
-            ln.hbox.addStretch()
+            if ln.is_voice_1 is None or ln.is_voice_1 is True:
+                ln.hbox.addStretch()
             self.lyrics.vbox.addLayout(ln.hbox)
             self.lyrics.vbox.addWidget(line_widget)
         self.scroll_area.setWidget(container)
@@ -114,41 +121,61 @@ class LyricsWidget(QWidget):
     def scroll_to_line(self, wordbox):
         self.scroll_area.ensureWidgetVisible(wordbox)
 
+    def set_timer(self, framerate, player, words):
+        self.player = player
+        self.words = words
+
+    def start_timer(self):
+        self._timer.start()
+
+    def stop_timer(self):
+        self._timer.stop()
+
+    def on_frame(self):
+        active = []
+        idx = bisect_right([w.start_time for w in self.words], self.player.get_time()) - 1
+        while idx < len(self.words) and \
+                self.words[idx].start_time <= self.player.get_time() < self.words[idx].end_time:
+            active.append(self.words[idx])
+            idx += 1
+        if len(active) > 1:
+            self.group.setExclusive(False)
+        else:
+            self.group.setExclusive(True)
+        self.active_words_changed.emit(active)
+
 
 
 class EditorWidget(QWidget):
     def __init__(self, lyrics, parent=None):
         super().__init__(parent)
         self.lyrics = lyrics
+        self.text = QPlainTextEdit()
         self.init_ui()
 
     def init_ui(self):
         v = QVBoxLayout(self)
-        self.text = QPlainTextEdit()
         self.refresh_text()
         v.addWidget(self.text)
 
     def refresh_text(self):
         out = []
         if self.lyrics is None:
-            self.text.setPlainText("Enter lyrics or import them...")
             return
         for ln in self.lyrics.lines:
             line_txt = ""
-            if ln.start_time is not None:
-                line_txt += f"[{self._format_time(ln.start_time)}]"
-            for w in ln.words:
+            if ln.start_time is not None and not ln.is_background_voice:
+                line_txt += f"[{format_time(ln.start_time)}]"
+                line_txt += "v1:" if ln.is_voice_1 else ""
+                line_txt += "v2:" if ln.is_voice_2 else ""
+            line_txt += "[bg:" if ln.is_background_voice else ""
+            for x,w in enumerate(ln.words):
                 if w.start_time is not None and w.end_time is not None:
-                    line_txt += f"<{self._format_time(w.start_time)}>{w.word} <{self._format_time(w.end_time)}>"
+                    line_txt += f"<{format_time(w.start_time)}>{w.word} <{format_time(w.end_time)}>"
+                    if x == len(ln.words) - 1 and not ln.is_background_voice:
+                        line_txt += f"</{format_time(w.end_time)}>"
                 else:
                     line_txt += f"{w.word} "
+            line_txt += "]" if ln.is_background_voice else ""
             out.append(line_txt.strip())
         self.text.setPlainText("\n".join(out))
-
-    def _format_time(self, ms):
-        if ms is None:
-            return "00:00.000"
-        milliseconds = str(ms % 1000).zfill(3)
-        seconds = str((ms // 1000) % 60).zfill(2)
-        minutes = str((ms // 1000) // 60).zfill(2)
-        return f"{minutes}:{seconds}.{milliseconds}"

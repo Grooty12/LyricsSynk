@@ -44,23 +44,38 @@ class MusicPlayer(QMainWindow):
 
     def load_lyrics_from_file(self):
         file_path, _ = QFileDialog.getOpenFileName(
-            self, "Open Lyrics", "", "Text Files (*.txt *.lrc)"
+            self, "Open Lyrics", "", "Text Files (*.txt *.lrc *.elrc)"
         )
         if file_path:
             with open(file_path, "r", encoding="utf-8") as f:
                 self.lyrics = Lyrics(f.read())
                 self.lyrics.songName = file_path.split("/")[-1]
-            self.lyrics_string = self.lyrics.toarray()
+            if self.lyrics_widget:
+                self.stack.removeWidget(self.lyrics_widget)
+                self.lyrics_widget.deleteLater()
+            if self.editor_widget:
+                self.stack.removeWidget(self.editor_widget)
+                self.editor_widget.deleteLater()
             self.lyrics_widget = LyricsWidget(self.lyrics, self)
-            self.editor_widget = EditorWidget(self.lyrics, self) # Todo: Make editorwidget always visible. make it update the lyrics objects when you switch back to lyrics widget.
-            self.stack.addWidget(self.lyrics_widget)
-            self.stack.addWidget(self.editor_widget)
+            self.editor_widget = EditorWidget(self.lyrics, self)
+            self.stack.insertWidget(0, self.lyrics_widget)
+            self.stack.insertWidget(1, self.editor_widget)
             self.stack.setCurrentIndex(0)
+            self.lyrics_widget.update_times()
+            self.editor_widget.refresh_text()
+            self.save_lyrics_btn.setEnabled(True)
+
+    def load_initial_lyrics_views(self):
+        self.lyrics_widget = LyricsWidget(self.lyrics, self)
+        self.editor_widget = EditorWidget(self.lyrics, self)
+        self.editor_widget.text.setPlaceholderText("Import lyrics or input them here...")
+        self.stack.insertWidget(0, self.lyrics_widget)
+        self.stack.insertWidget(1, self.editor_widget)
+        self.stack.setCurrentIndex(1)
 
     def apply_lyrics_from_editor(self):
         text = self.editor_widget.text.toPlainText()
         self.lyrics = Lyrics(text)
-        self.lyrics_string = self.lyrics.toarray()
 
         # Store current position
         current_line = self.lineReached
@@ -94,14 +109,12 @@ class MusicPlayer(QMainWindow):
         self.lineReached = current_line
         self.wordReached = current_word
         self.stack.setCurrentIndex(0)
+        if text:
+            self.save_lyrics_btn.setEnabled(True)
 
     def jump_to_word(self, word):
         if word.start_time is not None:
             self.player.set_time(word.start_time)
-            for ln in self.lyrics.lines:
-                for w in ln.words:
-                    if w.word_box and w.word_box.isChecked():
-                        w.word_box.setChecked(False)
             word.word_box.setChecked(True)
             for i, ln in enumerate(self.lyrics.lines):
                 for j, w in enumerate(ln.words):
@@ -115,5 +128,12 @@ class MusicPlayer(QMainWindow):
 
     def save_lyrics(self):
         saved_lyrics = self.lyrics.songName + ".elrc"
-        with open(saved_lyrics, "w", encoding="utf-8") as f:
-            f.write(self.editor_widget.text.toPlainText())
+        file_path, ok = QFileDialog.getSaveFileName(
+            None,  # parent
+            "Save lyrics",  # caption
+            f"{self.lyrics.songName}",  # start directory (empty = last used)
+            "Lyrics files (*.elrc *.lrc *.txt);;All files (*)"  # filter
+        )
+        if ok and file_path:
+            with open(saved_lyrics, "w", encoding="utf-8") as f:
+                f.write(self.editor_widget.text.toPlainText())
