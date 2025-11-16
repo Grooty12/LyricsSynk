@@ -20,7 +20,7 @@ class LyricsWord:
             self.word_box.setChecked(False)
 
 
-class LyricsLine(LyricsWord):
+class LyricsLine():
     def __init__(self, line, line_number):
         self.start_time = None
         self.end_time = None
@@ -44,7 +44,7 @@ class LyricsLine(LyricsWord):
                 self.words_with_time = words_with_time_split[0][4:]
             else:
                 start_time_string = words_with_time_split[0][1:]
-                self.start_time = ((int(start_time_string[0:1])*60)+int(start_time_string[4:5]))*1000 + int(start_time_string[6:])
+                self.start_time = self.string_time_to_ms(start_time_string)
                 self.words_with_time = words_with_time_split[1]
         if len(self.words_with_time.split(">")) > 1:
             if self.words_with_time[:3].lower() == "v1:":
@@ -95,7 +95,7 @@ class Lyrics(QObject):
         self.songName = ""
         self.number_of_lines = 0
         for ln in self.lines_with_time:
-            if ln.strip() and not ln.split("]")[1] in [" ", ""]:
+            if ln.strip() and (not ln.split("]")[1] in [" ", ""] or ln[1:4].lower() == "bg:"):
                 if len(ln.split("]")) or (len(ln.split("]")) > 1 and (ln.split("]")[1] != "" and ln.split("]")[1] != " ")):
                     self.lines.append(LyricsLine(ln, self.number_of_lines))
                     self.number_of_lines += 1

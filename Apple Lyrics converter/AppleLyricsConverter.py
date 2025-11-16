@@ -75,11 +75,11 @@ def build_lrc_text(spans: List[Tuple[str, str, str, bool]]) -> str:
         end_time = parse_time(end)
 
         # Add word with start and end timestamps
+        if (has_space and i <= len(spans) - 1) or i == len(spans) - 1:
+            text += " "
         result.append(f"<{begin_time}>{text}<{end_time}>")
 
         # Add space if needed (but not after last word)
-        if has_space and i < len(spans) - 1:
-            result.append(" ")
 
     return ''.join(result)
 

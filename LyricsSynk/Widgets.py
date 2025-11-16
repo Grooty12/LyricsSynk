@@ -5,6 +5,18 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QPoint, QObject, QTimer, Signal
 from PySide6.QtGui import QPainter, QFontMetrics
 from bisect import bisect_right
+import time
+
+current_time = 0
+last_event_clock = 0.0
+
+def get_current_time():
+    return current_time
+
+def set_current_time(new_time):
+    global current_time, last_event_clock
+    current_time = new_time
+    last_event_clock = time.perf_counter()
 
 def format_time(ms):
     if ms is None:
@@ -54,6 +66,7 @@ class LyricsWidget(QWidget):
     active_words_changed = Signal(list)
     def __init__(self, lyrics, parent=None):
         super().__init__(parent)
+        global current_time, last_event_clock
         self.lyrics = lyrics
         self.group = QButtonGroup(self)
         self.group.setExclusive(True)
@@ -62,11 +75,12 @@ class LyricsWidget(QWidget):
         self.parent = parent
         self.scroll_area = None
         self._timer = QTimer(self)
-        self._timer.setInterval(1000 // 60)
+        self._timer.setInterval(1000 // 240)
         self._timer.timeout.connect(self.on_frame)
         self.player = None
         self.words = []
         self.init_ui()
+        self.active = []
 
     def init_ui(self):
         self.scroll_area = QScrollArea()
@@ -121,29 +135,36 @@ class LyricsWidget(QWidget):
     def scroll_to_line(self, wordbox):
         self.scroll_area.ensureWidgetVisible(wordbox)
 
-    def set_timer(self, framerate, player, words):
+    def set_timer(self, current_time, player, words):
         self.player = player
         self.words = words
 
     def start_timer(self):
         self._timer.start()
+        self.group.setExclusive(False)
 
     def stop_timer(self):
         self._timer.stop()
+        self.group.setExclusive(True)
 
     def on_frame(self):
+        elapsed = time.perf_counter() - last_event_clock
+        interpolated = current_time + (elapsed*1000)
         active = []
-        idx = bisect_right([w.start_time for w in self.words], self.player.get_time()) - 1
+        for word in self.active:
+            if word.end_time > interpolated:
+                active.append(word)
+            else:
+                word.word_box.setChecked(False)
+        idx = bisect_right([w.start_time for w in self.words], interpolated) - 1
         while idx < len(self.words) and \
-                self.words[idx].start_time <= self.player.get_time() < self.words[idx].end_time:
+                self.words[idx].start_time <= interpolated < self.words[idx].end_time:
             active.append(self.words[idx])
             idx += 1
-        if len(active) > 1:
-            self.group.setExclusive(False)
-        else:
-            self.group.setExclusive(True)
+        if active:
+            self.scroll_to_line(active[-1 if len(active) > 1 else 0].word_box)
         self.active_words_changed.emit(active)
-
+        self.active = active
 
 
 class EditorWidget(QWidget):
@@ -173,7 +194,7 @@ class EditorWidget(QWidget):
                 if w.start_time is not None and w.end_time is not None:
                     line_txt += f"<{format_time(w.start_time)}>{w.word} <{format_time(w.end_time)}>"
                     if x == len(ln.words) - 1 and not ln.is_background_voice:
-                        line_txt += f"</{format_time(w.end_time)}>"
+                        line_txt += f"<{format_time(w.end_time)}>"
                 else:
                     line_txt += f"{w.word} "
             line_txt += "]" if ln.is_background_voice else ""

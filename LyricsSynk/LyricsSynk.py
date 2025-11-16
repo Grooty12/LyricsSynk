@@ -5,12 +5,15 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 from MusicPlayer import MusicPlayer
-from Widgets import format_time
+from Widgets import format_time, set_current_time
+import time
 
 
 class MusicPlayerWindow(MusicPlayer):
     def __init__(self):
         super().__init__()
+        self.imprecise_time = 0
+        self.last_event_time = 0.0
         self.lineReached = 0
         self.wordReached = 0
         central = QWidget()
@@ -120,7 +123,7 @@ class MusicPlayerWindow(MusicPlayer):
         self.words = self.lyrics.toarray()
         self.words = [w for i in self.words for w in i]
         self.starts = [w.start_time for w in self.words]
-        self.lyrics_widget.set_timer(60, self.player, self.words)
+        self.lyrics_widget.set_timer(120, self.player, self.words)
         for word in self.words:  # list/iterable of WordBox
             self.lyrics_widget.active_words_changed.connect(word.on_active_changed)
 
@@ -139,14 +142,21 @@ class MusicPlayerWindow(MusicPlayer):
     def update_playbackSpeed(self, speed):
         self.player.set_rate(speed * 0.01)
         self.playbackspeed_label.setText(f"Playback Speed: {speed * 0.01:.1f}x")
+        self.imprecise_time = self.player.get_time()
+        self.last_event_time = time.perf_counter()
 
     def toggle_playback(self):
         if self.player.get_state() == vlc.State.Playing:
             self.player.pause()
+            self.imprecise_time = self.player.get_time()
+            self.last_event_time = time.perf_counter()
+            set_current_time(self.imprecise_time)
             self.lyrics_widget.stop_timer()
         else:
             self.player.play()
-            self.lyrics_widget.start_timer()
+            set_current_time(self.player.get_time())
+            if self.play_lyrics_back:
+                self.lyrics_widget.start_timer()
 
     def play(self, state, userdata=None):
         self.play_btn.setText("Pause")
@@ -159,6 +169,9 @@ class MusicPlayerWindow(MusicPlayer):
         self.slider.setValue(self.player.get_time())
         self.slider_position.setText(format_time(self.player.get_time()))
         self.slider.blockSignals(False)
+        self.imprecise_time = self.player.get_time()
+        self.last_event_time = time.perf_counter()
+        set_current_time(self.imprecise_time)
 
     def update_duration(self, event, userdata=None):
         self.slider.setRange(0, self.player.get_length())
@@ -240,8 +253,7 @@ class MusicPlayerWindow(MusicPlayer):
         self.editor_widget.refresh_text()
 
     def save_start_time_no_skip(self):
-        print(len(self.lyrics.lines[self.lineReached].words))
-        pos = self.player.get_time()
+        pos = self.get_precise_time()
         self.lyrics.lines[self.lineReached].words[self.wordReached].start_time = pos
         if self.wordReached == 0:
             self.lyrics.lines[self.lineReached].start_time = pos
@@ -249,12 +261,11 @@ class MusicPlayerWindow(MusicPlayer):
         self.editor_widget.refresh_text()
 
     def save_end_time_is_precise(self):
-        pos = self.player.get_time()
+        pos = self.get_precise_time()
         self.lyrics.lines[self.lineReached].words[self.wordReached].end_time = pos
         if self.wordReached == len(self.lyrics.lines[self.lineReached].words) - 1:
             self.lyrics.lines[self.lineReached].end_time = pos
             if self.lineReached == len(self.lyrics.lines) - 1:
-                self.save_lyrics()
                 self.lyrics_widget.update_times()
                 self.editor_widget.refresh_text()
                 return
@@ -269,7 +280,7 @@ class MusicPlayerWindow(MusicPlayer):
         self.lyrics_widget.scroll_to_line(self.lyrics.lines[self.lineReached].words[self.wordReached].word_box)
 
     def save_start_time(self):
-        pos = self.player.get_time()
+        pos = self.get_precise_time()
         self.lyrics.lines[self.lineReached].words[self.wordReached].start_time = pos
         if self.wordReached == 0:
             self.lyrics.lines[self.lineReached].start_time = pos
@@ -285,7 +296,7 @@ class MusicPlayerWindow(MusicPlayer):
         self.editor_widget.refresh_text()
 
     def save_end_time(self):
-        pos = self.player.get_time()
+        pos = self.get_precise_time()
         self.lyrics.lines[self.lineReached].words[self.wordReached].end_time = pos
         if self.wordReached == len(self.lyrics.lines[self.lineReached].words) - 1:
             self.lyrics.lines[self.lineReached].end_time = pos
@@ -305,6 +316,13 @@ class MusicPlayerWindow(MusicPlayer):
         self.editor_widget.refresh_text()
         self.lyrics_widget.scroll_to_line(self.lyrics.lines[self.lineReached].words[self.wordReached].word_box)
 
+    def get_precise_time(self):
+        elapsed = time.perf_counter() - self.last_event_time
+        interpolated = self.imprecise_time + (elapsed * 1000 * self.player.get_rate())
+        if self.player.get_state() == vlc.State.Playing:
+            return int(interpolated)
+        else:
+            return self.player.get_state()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

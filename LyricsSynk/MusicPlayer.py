@@ -128,12 +128,12 @@ class MusicPlayer(QMainWindow):
 
     def save_lyrics(self):
         saved_lyrics = self.lyrics.songName + ".elrc"
-        file_path, ok = QFileDialog.getSaveFileName(
+        file_path = QFileDialog.getSaveFileName(
             None,  # parent
             "Save lyrics",  # caption
             f"{self.lyrics.songName}",  # start directory (empty = last used)
             "Lyrics files (*.elrc *.lrc *.txt);;All files (*)"  # filter
         )
-        if ok and file_path:
-            with open(saved_lyrics, "w", encoding="utf-8") as f:
+        if file_path[0]:
+            with open(file_path[0], "w", encoding="utf-8") as f:
                 f.write(self.editor_widget.text.toPlainText())
