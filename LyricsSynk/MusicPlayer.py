@@ -1,4 +1,10 @@
 import vlc
+import os
+os.environ["QT_MEDIA_BACKEND"] = "ffmpeg"
+
+from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
+from PyQt6.QtCore import QUrl
+
 from Lyrics import Lyrics
 from Widgets import LyricsWidget, EditorWidget
 from PySide6.QtWidgets import (
@@ -14,7 +20,7 @@ class MusicPlayer(QMainWindow):
         self.setBaseSize(500, 500)
         self.lineReached = 0
         self.wordReached = 0
-        self.vlc_instance = vlc.Instance()
+        self.vlc_instance = vlc.Instance('--skip-frames', '')
         self.player = self.vlc_instance.media_player_new()
         self.player.audio_set_volume(50)
         central = QWidget()

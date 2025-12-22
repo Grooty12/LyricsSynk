@@ -11,6 +11,9 @@ class LyricsWord:
         self.word_box = None
         self.line_number = line_number
         self.word_number = word_number
+        self.words = []
+        self.start_times = []
+        self.end_times = []
 
     @Slot(list)  # PySide6 / PyQt6
     def on_active_changed(self, active_words):
@@ -55,19 +58,31 @@ class LyricsLine():
                 self.is_voice_2 = True
                 self.is_voice_1, self.is_background_voice = False, False
                 self.words_with_time = self.words_with_time[3:]
+            syllable_words2 =self.words_with_time.split(" ")
+            syllable_words = []
+            for i,word_with_time in enumerate(syllable_words2):
+                print(re.split(r'(<[^>]*>)', word_with_time))
+
             syllable_words = re.split(r'(<[^>]*>)', self.words_with_time)
             syllable_words = [words for words in syllable_words if words]
 
             if syllable_words[-1][0] == "<" and syllable_words[-2][0] == "<":
                 self.end_time = self.string_time_to_ms(syllable_words[-1])
                 syllable_words.pop()
-
-            syllable_words = [[syllable_words[i-1], words, syllable_words[i+1]] for i,words in enumerate(syllable_words) if (words[0] != "<" and words[-1] != ">")]
+            syllable_words_sorted = []
+            for i, words in enumerate(syllable_words):
+                if words[0] != "<" and words[-1] != ">":
+                    if i <= len(syllable_words) - 1:
+                        syllable_words_sorted.append([syllable_words[i-1], words, syllable_words[i+1]])
+                    else:
+                        for word in words.split(" "):
+                            syllable_words_sorted.append([None, word, None])
+            #syllable_words = [[syllable_words[i-1], words, syllable_words[i+1]] for i,words in enumerate(syllable_words) if (words[0] != "<" and words[-1] != ">")]
+            syllable_words = syllable_words_sorted
             for i,w in enumerate(syllable_words):
                 self.words.append(LyricsWord(w[1], self.start_time, line_number, i))
-                self.words[i].start_time = self.string_time_to_ms(w[0])
-                self.words[i].end_time = self.string_time_to_ms(w[2])
-
+                self.words[i].start_time = self.string_time_to_ms(w[0]) if w[0] is not None else None
+                self.words[i].end_time = self.string_time_to_ms(w[2]) if w[2] is not None else None
         elif self.words_with_time.strip():
             for i, w in enumerate(self.words_with_time.split()):
                 if w.strip():

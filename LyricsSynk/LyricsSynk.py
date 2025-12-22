@@ -1,9 +1,12 @@
-import vlc, sys, bisect
+import vlc, sys, bisect, os
+os.environ["QT_MEDIA_BACKEND"] = "ffmpeg"
 from PySide6.QtWidgets import (
     QApplication, QPushButton, QVBoxLayout, QWidget,
     QFileDialog, QHBoxLayout, QLabel, QSlider, QStackedWidget
 )
-from PySide6.QtCore import Qt
+
+from PySide6.QtCore import Qt, QUrl
+from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 from MusicPlayer import MusicPlayer
 from Widgets import format_time, set_current_time
 import time
@@ -176,6 +179,7 @@ class MusicPlayerWindow(MusicPlayer):
     def update_duration(self, event, userdata=None):
         self.slider.setRange(0, self.player.get_length())
         self.slider_song_duration.setText(format_time(self.player.get_length())[:5])
+        print(self.player.get_length(), format_time(self.player.get_length()))
 
     def seek(self, position):
         self.player.set_time(position)
@@ -210,6 +214,8 @@ class MusicPlayerWindow(MusicPlayer):
             self.set_line_singer("v2")
         elif event.key() == Qt.Key_N:
             self.set_line_singer("bg")
+        elif event.key() == Qt.Key_S:
+            self.save_start_and_prev_end_time()
         super().keyPressEvent(event)
 
 
@@ -260,8 +266,26 @@ class MusicPlayerWindow(MusicPlayer):
         self.lyrics_widget.update_times()
         self.editor_widget.refresh_text()
 
+    def save_start_and_prev_end_time(self):
+        pos = self.get_precise_time()
+        if self.wordReached < len(self.lyrics.lines[self.lineReached].words) - 1:
+            self.lyrics.lines[self.lineReached].words[self.wordReached].end_time = pos
+            self.lyrics.lines[self.lineReached].words[self.wordReached+1].start_time = pos
+            self.wordReached += 1
+            self.lyrics.lines[self.lineReached].words[self.wordReached].word_box.setChecked(True)
+            self.lyrics_widget.update_times()
+            self.editor_widget.refresh_text()
+            self.lyrics_widget.scroll_to_line(self.lyrics.lines[self.lineReached].words[self.wordReached].word_box)
+
+        if self.wordReached == 0:
+            self.lyrics.lines[self.lineReached].start_time = pos
+
+
+
     def save_end_time_is_precise(self):
         pos = self.get_precise_time()
+        if pos > self.player.get_length():
+            pos = self.player.get_length()
         self.lyrics.lines[self.lineReached].words[self.wordReached].end_time = pos
         if self.wordReached == len(self.lyrics.lines[self.lineReached].words) - 1:
             self.lyrics.lines[self.lineReached].end_time = pos
